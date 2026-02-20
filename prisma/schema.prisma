@@ -1,0 +1,304 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/prisma-schema
+
+// For Supabase PostgreSQL, change provider to "postgresql" and update DATABASE_URL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ==================== CRYPTOCURRENCY DATA ====================
+
+model Cryptocurrency {
+  id                  String   @id @default(cuid())
+  coingeckoId         String   @unique // CoinGecko API ID
+  symbol              String
+  name                String
+  currentPrice        Float
+  marketCap           Float?
+  marketCapRank       Int?
+  totalVolume         Float?
+  high24h             Float?
+  low24h              Float?
+  priceChange24h      Float?
+  priceChangePercent24h Float?
+  priceChange7d       Float?
+  priceChangePercent7d Float?
+  ath                 Float?   // All Time High
+  athChangePercent    Float?
+  atl                 Float?   // All Time Low
+  atlChangePercent    Float?
+  circulatingSupply   Float?
+  totalSupply         Float?
+  maxSupply           Float?
+  imageUrl            String?
+  lastUpdated         DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  priceHistory        PriceHistory[]
+  indicators          TechnicalIndicator[]
+  alerts              Alert[]
+  alertConfigs        AlertConfig[]
+  analysisLogs        AnalysisLog[]
+  portfolio           Portfolio?
+
+  @@index([symbol])
+  @@index([marketCapRank])
+}
+
+model PriceHistory {
+  id            String   @id @default(cuid())
+  cryptoId      String
+  cryptocurrency Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  timestamp     DateTime
+  open          Float
+  high          Float
+  low           Float
+  close         Float
+  volume        Float
+  createdAt     DateTime @default(now())
+
+  @@index([cryptoId, timestamp])
+  @@index([timestamp])
+}
+
+model TechnicalIndicator {
+  id                String   @id @default(cuid())
+  cryptoId          String
+  cryptocurrency    Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  timestamp         DateTime @default(now())
+  
+  // RSI
+  rsi14             Float?
+  
+  // MACD
+  macd              Float?
+  macdSignal        Float?
+  macdHistogram     Float?
+  
+  // Bollinger Bands
+  bollingerUpper    Float?
+  bollingerMiddle   Float?
+  bollingerLower    Float?
+  bollingerWidth    Float?
+  
+  // Moving Averages
+  sma20             Float?
+  sma50             Float?
+  sma200            Float?
+  ema20             Float?
+  ema50             Float?
+  ema200            Float?
+  
+  // Volume
+  volumeSma20       Float?
+  volumeRatio       Float?   // Current volume / avg volume
+  
+  // Support & Resistance
+  support1          Float?
+  support2          Float?
+  resistance1       Float?
+  resistance2       Float?
+  pivotPoint        Float?
+  
+  // Trend
+  trend             String?  // BULLISH, BEARISH, SIDEWAYS
+  signal            String?  // STRONG_BUY, BUY, NEUTRAL, SELL, STRONG_SELL
+  
+  createdAt         DateTime @default(now())
+
+  @@index([cryptoId, timestamp])
+}
+
+// ==================== ALERTS ====================
+
+model Alert {
+  id              String   @id @default(cuid())
+  cryptoId        String
+  cryptocurrency  Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  type            String   // BUY_SIGNAL, SELL_SIGNAL, PRICE_TARGET, STOP_LOSS, TAKE_PROFIT
+  severity        String   @default("INFO") // INFO, WARNING, CRITICAL
+  message         String
+  details         String?  // JSON with additional details
+  
+  // Price context
+  triggerPrice    Float?
+  targetPrice     Float?
+  
+  // Status
+  triggered       Boolean  @default(false)
+  triggeredAt     DateTime?
+  acknowledged    Boolean  @default(false)
+  acknowledgedAt  DateTime?
+  
+  createdAt       DateTime @default(now())
+
+  @@index([cryptoId, triggered])
+  @@index([createdAt])
+}
+
+model AlertConfig {
+  id                    String   @id @default(cuid())
+  cryptoId              String
+  cryptocurrency        Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  
+  // Enable/disable
+  enabled               Boolean  @default(true)
+  
+  // Buy signals
+  buyThresholdPercent   Float    @default(10.0)  // Alert when price drops X% from recent high
+  rsiOversoldThreshold  Float    @default(30.0)  // RSI below this = oversold
+  
+  // Sell signals
+  sellThresholdPercent  Float    @default(10.0)  // Alert when price rises X% from buy price
+  rsiOverboughtThreshold Float   @default(70.0)  // RSI above this = overbought
+  
+  // Risk management
+  stopLossPercent       Float    @default(5.0)   // Stop loss percentage
+  takeProfitPercent     Float    @default(20.0)  // Take profit percentage
+  
+  // Price targets
+  priceTargetUp         Float?   // Custom price target (up)
+  priceTargetDown       Float?   // Custom price target (down)
+  
+  // Notifications
+  notifyEmail           Boolean  @default(false)
+  notifyPush            Boolean  @default(true)
+  email                 String?
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([cryptoId])
+}
+
+// ==================== PORTFOLIO ====================
+
+model Portfolio {
+  id              String   @id @default(cuid())
+  cryptoId        String
+  cryptocurrency  Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  symbol          String
+  
+  // Position
+  quantity        Float    @default(0)
+  avgBuyPrice     Float    @default(0)
+  totalInvested   Float    @default(0)
+  
+  // Current value (calculated)
+  currentValue    Float    @default(0)
+  profitLoss      Float    @default(0)
+  profitLossPercent Float  @default(0)
+  
+  // Risk management
+  stopLossPrice   Float?
+  takeProfitPrice Float?
+  
+  // Status
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  transactions    PortfolioTransaction[]
+
+  @@unique([cryptoId])
+  @@index([symbol])
+}
+
+model PortfolioTransaction {
+  id            String   @id @default(cuid())
+  portfolioId   String
+  portfolio     Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  
+  type          String   // BUY, SELL
+  quantity      Float
+  price         Float    // Price per unit
+  total         Float    // Total amount
+  fee           Float    @default(0)
+  feeCurrency   String?  // Currency of the fee
+  
+  notes         String?
+  timestamp     DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([portfolioId, timestamp])
+}
+
+// ==================== ANALYSIS LOGS ====================
+
+model AnalysisLog {
+  id              String   @id @default(cuid())
+  cryptoId        String
+  cryptocurrency  Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  
+  timestamp       DateTime @default(now())
+  action          String   // SCAN, ANALYSIS, BACKTEST
+  analysis        String?  // JSON with full analysis data
+  recommendation  String?  // BUY, SELL, HOLD
+  confidence      Float?   // 0-1 confidence score
+  reasoning       String?  // AI-generated reasoning
+  
+  createdAt       DateTime @default(now())
+
+  @@index([cryptoId, timestamp])
+}
+
+// ==================== USER SETTINGS ====================
+
+model UserSettings {
+  id                    String   @id @default(cuid())
+  
+  // General
+  defaultCurrency       String   @default("usd")
+  refreshInterval       Int      @default(60)    // seconds
+  
+  // Scanner settings
+  scanInterval          Int      @default(300)   // seconds (5 min)
+  maxResults            Int      @default(20)    // max scan results
+  
+  // Risk settings
+  maxPositionSize       Float    @default(1000)  // USD
+  maxPortfolioRisk      Float    @default(0.02)  // 2% per trade
+  
+  // Notifications
+  emailEnabled          Boolean  @default(false)
+  emailAddress          String?
+  pushEnabled           Boolean  @default(true)
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// ==================== SYSTEM ====================
+
+model SystemLog {
+  id          String   @id @default(cuid())
+  level       String   // INFO, WARNING, ERROR
+  category    String   // API, ANALYSIS, ALERT, SYSTEM
+  message     String
+  details     String?  // JSON
+  timestamp   DateTime @default(now())
+
+  @@index([category, timestamp])
+}
+
+model ApiCache {
+  id          String   @id @default(cuid())
+  endpoint    String
+  params      String?  // JSON
+  data        String   // JSON response
+  fetchedAt   DateTime @default(now())
+  expiresAt   DateTime
+  
+  @@unique([endpoint, params])
+  @@index([expiresAt])
+}
