@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       return true;
     });
 
-    // Analyze top cryptos (limit to avoid rate limiting)
+    // Analyze top cryptos (limit to 40 for more comprehensive scanning)
     const toAnalyze = filtered.slice(0, 40);
 
     const { getBestOHLCData } = await import('@/lib/crypto/apis');
