@@ -5,8 +5,7 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-[functions]
-  # Extend timeout for long-running scans
+[functions."**"]
   timeout = 26
 
 [build.environment]
