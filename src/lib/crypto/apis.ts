@@ -425,30 +425,56 @@ function toBinanceSymbol(symbol: string, quote: string = 'USDT'): string {
   return `${symbol.toUpperCase()}${quote}`;
 }
 
+// List of Binance API mirrors to try if one is geo-blocked (common on Netlify/Vercel)
+const BINANCE_MIRRORS = [
+  'https://api.binance.com',
+  'https://api1.binance.com',
+  'https://api2.binance.com',
+  'https://api3.binance.com',
+  'https://data-api.binance.vision'
+];
+
 /**
- * Get 24h ticker for all symbols or specific symbol
+ * Get 24h ticker data for symbols from Binance with mirror fallback
  */
-export async function getBinanceTicker24h(symbol?: string): Promise<unknown[]> {
-  const cacheKey = `binance_ticker_${symbol || 'all'}`;
-  const cached = getCached<unknown[]>(cacheKey);
+export async function getBinanceTicker24h(symbol?: string): Promise<any> {
+  const cacheKey = `binance_tickers_${symbol || 'all'}`;
+  const cached = getCached<any>(cacheKey);
   if (cached) return cached;
 
   await rateLimit('binance');
 
-  const url = symbol
-    ? `${BINANCE_BASE}/ticker/24hr?symbol=${toBinanceSymbol(symbol)}`
-    : `${BINANCE_BASE}/ticker/24hr`;
+  let lastError: any = null;
 
-  const response = await fetch(url);
+  // Try different mirrors
+  for (const baseUrl of BINANCE_MIRRORS) {
+    try {
+      const url = symbol
+        ? `${baseUrl}/api/v3/ticker/24hr?symbol=${symbol.toUpperCase()}`
+        : `${baseUrl}/api/v3/ticker/24hr`;
 
-  if (!response.ok) {
-    throw new Error(`Binance Ticker API error: ${response.status}`);
+      const response = await fetch(url);
+
+      if (response.status === 451) {
+        console.warn(`[API] Binance mirror ${baseUrl} blocked (451). Trying next...`);
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Binance Ticker API error: ${response.status} at ${baseUrl}`);
+      }
+
+      const data = await response.json();
+      const result = Array.isArray(data) ? data : [data];
+      setCache(cacheKey, result, 30000);
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.warn(`[API] Binance mirror ${baseUrl} failed:`, (error as Error).message);
+    }
   }
 
-  const data = await response.json();
-  setCache(cacheKey, Array.isArray(data) ? data : [data], 30000);
-
-  return Array.isArray(data) ? data : [data];
+  throw lastError || new Error('All Binance mirrors failed');
 }
 
 /**
@@ -465,29 +491,44 @@ export async function getBinanceKlines(
 
   await rateLimit('binance');
 
-  const url = `${BINANCE_BASE}/klines?symbol=${toBinanceSymbol(symbol)}&interval=${interval}&limit=${limit}`;
+  let lastError: any = null;
 
-  const response = await fetch(url);
+  for (const baseUrl of BINANCE_MIRRORS) {
+    try {
+      const url = `${baseUrl}/api/v3/klines?symbol=${toBinanceSymbol(symbol)}&interval=${interval}&limit=${limit}`;
 
-  if (!response.ok) {
-    throw new Error(`Binance Klines API error: ${response.status}`);
+      const response = await fetch(url);
+
+      if (response.status === 451) {
+        console.warn(`[API] Binance Klines mirror ${baseUrl} blocked (451). Trying next...`);
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Binance Klines API error: ${response.status} at ${baseUrl}`);
+      }
+
+      const data = await response.json();
+
+      // Transform to CandleData format
+      const klines: CandleData[] = data.map((k: (string | number)[]) => ({
+        timestamp: k[0] as number,
+        open: parseFloat(k[1] as string),
+        high: parseFloat(k[2] as string),
+        low: parseFloat(k[3] as string),
+        close: parseFloat(k[4] as string),
+        volume: parseFloat(k[5] as string),
+      }));
+
+      setCache(cacheKey, klines, 60000);
+      return klines;
+    } catch (error) {
+      lastError = error;
+      console.warn(`[API] Binance Klines mirror ${baseUrl} failed for ${symbol}:`, (error as Error).message);
+    }
   }
 
-  const data = await response.json();
-
-  // Transform to CandleData format
-  const klines: CandleData[] = data.map((k: (string | number)[]) => ({
-    timestamp: k[0] as number,
-    open: parseFloat(k[1] as string),
-    high: parseFloat(k[2] as string),
-    low: parseFloat(k[3] as string),
-    close: parseFloat(k[4] as string),
-    volume: parseFloat(k[5] as string),
-  }));
-
-  setCache(cacheKey, klines, 60000);
-
-  return klines;
+  throw lastError || new Error(`All Binance mirrors failed for ${symbol}`);
 }
 
 /**
