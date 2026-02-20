@@ -262,17 +262,12 @@ export async function getBestOHLCData(
       }));
     }
 
-    // If no klines, return empty or throw to be caught
     return [];
   } catch (error: any) {
-    // ONLY fallback to CoinGecko if it's NOT a Binance symbol error (400)
-    // and ONLY if we really need to. During mass scans, we prefer to skip to avoided 429s.
-    if (error.message?.includes('400')) {
-      return []; // Just return empty, coin not on Binance
-    }
-
-    console.warn(`[API] Binance failure for ${symbol}, falling back to CoinGecko:`, error.message);
-    return getOHLCData(coinId, 'usd', days);
+    // During mass scans or production, we skip any coin that fails on Binance
+    // to avoid the slow Coingecko fallback and its strict rate limits.
+    console.log(`[API] Binance data not available for ${symbol}, skipping...`);
+    return [];
   }
 }
 

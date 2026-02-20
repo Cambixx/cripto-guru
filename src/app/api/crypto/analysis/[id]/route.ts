@@ -47,17 +47,8 @@ export async function GET(
       supportResistance
     );
 
-    // Get volume data from market chart
+    // Volume data from Binance (already in candles or skip if not critical)
     let volumeData: Array<{ timestamp: number; volume: number }> = [];
-    try {
-      const chartData = await getMarketChart(id, 'usd', days);
-      volumeData = chartData.total_volumes.map(([timestamp, volume]) => ({
-        timestamp,
-        volume,
-      }));
-    } catch {
-      // Volume data not critical, continue without it
-    }
 
     // Calculate price statistics
     const prices = candles.map(c => c.close);

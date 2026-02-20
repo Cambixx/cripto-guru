@@ -41,110 +41,103 @@ export async function POST(request: NextRequest) {
     // Analyze top cryptos (limit to 40 for more comprehensive scanning)
     const toAnalyze = filtered.slice(0, 40);
 
-    const opportunities = await Promise.all(
-      toAnalyze.map(async (crypto) => {
-        try {
-          // Get historical data using optimized hybrid function
-          const ohlcData = await getBestOHLCData(crypto.id, crypto.symbol, 30);
+    const opportunities: any[] = [];
 
-          if (ohlcData.length < 50) {
-            return null;
-          }
+    // Process sequentially with small delays to respect Coingecko rate limits
+    // and avoid 500 errors due to concurrent DB/API pressure
+    for (const crypto of toAnalyze) {
+      try {
+        console.log(`[SCAN] Analyzing ${crypto.symbol}...`);
 
-          const candles = ohlcData.map((ohlc) => ({
-            timestamp: ohlc.timestamp,
-            open: ohlc.open,
-            high: ohlc.high,
-            low: ohlc.low,
-            close: ohlc.close,
-            volume: 0,
-          }));
+        // Get historical data using optimized hybrid function
+        const ohlcData = await getBestOHLCData(crypto.id, crypto.symbol, 30);
 
-          // Perform analysis
-          const analysis = performTechnicalAnalysis(candles);
-          const supportResistance = findSupportResistance(candles);
-          const nearest = getNearestLevels(
-            candles[candles.length - 1].close,
-            supportResistance
-          );
-
-          const lastPrice = candles[candles.length - 1].close;
-          const priceChangePercent = crypto.price_change_percentage_24h || 0;
-
-          // Check if passes filters
-          if (analysis.rsi !== null) {
-            if (analysis.rsi < rsiRange[0] || analysis.rsi > rsiRange[1]) {
-              return null;
-            }
-          }
-
-          if (!signalFilter.includes(analysis.signal)) {
-            return null;
-          }
-
-          // Generate triggers
-          const triggers: string[] = [];
-
-          if (analysis.rsi !== null && analysis.rsi < 35) {
-            triggers.push(`RSI sobrevendido (${analysis.rsi.toFixed(1)})`);
-          }
-
-          if (analysis.bollingerBands.lower && lastPrice < analysis.bollingerBands.lower) {
-            triggers.push('Precio bajo banda Bollinger inferior');
-          }
-
-          if (analysis.macd.histogram !== null && analysis.macd.histogram > 0) {
-            triggers.push('MACD alcista');
-          }
-
-          if (nearest.distanceToSupport < 5) {
-            triggers.push(`Cerca de soporte (${nearest.distanceToSupport.toFixed(1)}%)`);
-          }
-
-          if (analysis.signal === 'STRONG_BUY') {
-            triggers.push('Señal fuerte de compra');
-          }
-
-          // Calculate confidence
-          let confidence = 0;
-          if (analysis.rsi !== null && analysis.rsi < 30) confidence += 0.2;
-          if (nearest.distanceToSupport < 3) confidence += 0.2;
-          if (analysis.macd.histogram !== null && analysis.macd.histogram > 0) confidence += 0.15;
-          if (analysis.signal === 'STRONG_BUY') confidence += 0.25;
-          if (analysis.trend === 'BULLISH') confidence += 0.1;
-          if (analysis.volume.ratio !== null && analysis.volume.ratio > 1.5) confidence += 0.1;
-          confidence = Math.min(1, confidence);
-
-          return {
-            cryptoId: crypto.id,
-            symbol: crypto.symbol.toUpperCase(),
-            name: crypto.name,
-            imageUrl: crypto.image,
-            currentPrice: lastPrice,
-            priceChange24h: crypto.price_change_24h || 0,
-            priceChangePercent24h: priceChangePercent,
-            marketCap: crypto.market_cap,
-            volume24h: crypto.total_volume,
-            rsi: analysis.rsi,
-            signal: analysis.signal,
-            signalScore: analysis.signalScore,
-            trend: analysis.trend,
-            distanceFromLow: ((lastPrice - crypto.low_24h!) / lastPrice) * 100,
-            distanceFromSupport: nearest.distanceToSupport,
-            distanceFromResistance: nearest.distanceToResistance,
-            nearestSupport: nearest.nearestSupport?.price || null,
-            nearestResistance: nearest.nearestResistance?.price || null,
-            volumeRatio: analysis.volume.ratio,
-            triggers,
-            recommendation: generateRecommendation(analysis, nearest, priceChangePercent),
-            confidence,
-          };
-        } catch (error) {
-          console.error(`Error analyzing ${crypto.symbol}:`, error);
-          return null;
+        if (!ohlcData || ohlcData.length < 50) {
+          console.log(`[SCAN] Skip ${crypto.symbol}: not enough candles (${ohlcData?.length || 0})`);
+          continue;
         }
-      })
-    );
+
+        const candles = ohlcData.map((ohlc) => ({
+          timestamp: ohlc.timestamp,
+          open: ohlc.open,
+          high: ohlc.high,
+          low: ohlc.low,
+          close: ohlc.close,
+          volume: 0,
+        }));
+
+        // Perform analysis
+        const analysis = performTechnicalAnalysis(candles);
+        const supportResistance = findSupportResistance(candles);
+        const nearest = getNearestLevels(
+          candles[candles.length - 1].close,
+          supportResistance
+        );
+
+        const lastPrice = candles[candles.length - 1].close;
+        const priceChangePercent = crypto.price_change_percentage_24h || 0;
+
+        // Check if passes filters
+        if (analysis.rsi !== null) {
+          if (analysis.rsi < rsiRange[0] || analysis.rsi > rsiRange[1]) {
+            continue;
+          }
+        }
+
+        if (!signalFilter.includes(analysis.signal)) {
+          continue;
+        }
+
+        // Generate triggers
+        const triggers: string[] = [];
+        if (analysis.rsi !== null && analysis.rsi < 35) triggers.push(`RSI sobrevendido (${analysis.rsi.toFixed(1)})`);
+        if (analysis.bollingerBands.lower && lastPrice < analysis.bollingerBands.lower) triggers.push('Precio bajo banda Bollinger inferior');
+        if (analysis.macd.histogram !== null && analysis.macd.histogram > 0) triggers.push('MACD alcista');
+        if (nearest.distanceToSupport < 5) triggers.push(`Cerca de soporte (${nearest.distanceToSupport.toFixed(1)}%)`);
+        if (analysis.signal === 'STRONG_BUY') triggers.push('Señal fuerte de compra');
+
+        // Calculate confidence
+        let confidence = 0;
+        if (analysis.rsi !== null && analysis.rsi < 30) confidence += 0.2;
+        if (nearest.distanceToSupport < 3) confidence += 0.2;
+        if (analysis.macd.histogram !== null && analysis.macd.histogram > 0) confidence += 0.15;
+        if (analysis.signal === 'STRONG_BUY') confidence += 0.25;
+        if (analysis.trend === 'BULLISH') confidence += 0.1;
+        if (analysis.volume.ratio !== null && analysis.volume.ratio > 1.5) confidence += 0.1;
+        confidence = Math.min(1, confidence);
+
+        opportunities.push({
+          cryptoId: crypto.id,
+          symbol: crypto.symbol.toUpperCase(),
+          name: crypto.name,
+          imageUrl: crypto.image,
+          currentPrice: lastPrice,
+          priceChange24h: crypto.price_change_24h || 0,
+          priceChangePercent24h: priceChangePercent,
+          marketCap: crypto.market_cap,
+          volume24h: crypto.total_volume,
+          rsi: analysis.rsi,
+          signal: analysis.signal,
+          signalScore: analysis.signalScore,
+          trend: analysis.trend,
+          distanceFromLow: ((lastPrice - crypto.low_24h!) / lastPrice) * 100,
+          distanceFromSupport: nearest.distanceToSupport,
+          distanceFromResistance: nearest.distanceToResistance,
+          nearestSupport: nearest.nearestSupport?.price || null,
+          nearestResistance: nearest.nearestResistance?.price || null,
+          volumeRatio: analysis.volume.ratio,
+          triggers,
+          recommendation: generateRecommendation(analysis, nearest, priceChangePercent),
+          confidence,
+        });
+
+        // Very tiny delay to not bombard the connection pool
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+      } catch (error) {
+        console.error(`Error analyzing ${crypto.symbol}:`, error);
+      }
+    }
 
     // Filter out nulls and sort by signal score
     const validOpportunities = opportunities
