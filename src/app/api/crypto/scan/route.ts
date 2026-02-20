@@ -154,11 +154,12 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Scan API error:', error);
+    console.error('CRITICAL: Scan API error:', error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Scan failed'
+        error: error instanceof Error ? error.message : 'Scan failed',
+        details: 'Check server logs for database connection issues or rate limits'
       },
       { status: 500 }
     );
