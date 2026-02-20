@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchMarketDataWithFallback, getOHLCData, SYMBOL_TO_COINGECKO } from '@/lib/crypto/apis';
+import { fetchMarketDataWithFallback, getOHLCData, SYMBOL_TO_COINGECKO, getBestOHLCData, getBinanceTicker24h } from '@/lib/crypto/apis';
 import { performTechnicalAnalysis, findSupportResistance, getNearestLevels } from '@/lib/crypto/technical-analysis';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +25,6 @@ export async function POST(request: NextRequest) {
     const marketData = await fetchMarketDataWithFallback();
 
     // Fetch Binance tickers to filter only available coins
-    const { getBinanceTicker24h } = await import('@/lib/crypto/apis');
     const binanceTickers = await getBinanceTicker24h();
     const binanceSymbols = new Set(binanceTickers.map((t: any) => t.symbol));
 
@@ -41,8 +40,6 @@ export async function POST(request: NextRequest) {
 
     // Analyze top cryptos (limit to 40 for more comprehensive scanning)
     const toAnalyze = filtered.slice(0, 40);
-
-    const { getBestOHLCData } = await import('@/lib/crypto/apis');
 
     const opportunities = await Promise.all(
       toAnalyze.map(async (crypto) => {
